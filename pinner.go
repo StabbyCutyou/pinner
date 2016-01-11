@@ -2,6 +2,8 @@
 package pinner
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -10,7 +12,17 @@ import (
 	"github.com/hashicorp/go-version"
 )
 
-var rootLibraryPath = os.Getenv("GOPATH") + "/" + "test/"
+var (
+	// ErrUnsupportedDependency is returned whenever a depdency cannot be interpreted
+	// TODO this is too generic and lacks any kind of helpful context
+	ErrUnsupportedDependency = errors.New("Unsupported Dependency")
+)
+
+var rootLibraryPath = os.Getenv("GOPATH") + "/" + "pin_staging/"
+var lfByte byte = 10
+
+// registry holds the actual registry of each dependency
+var registry = make([]*registryEntry, 0)
 
 type registryEntry struct {
 	libName    string
@@ -85,12 +97,54 @@ func (r *registryEntry) fetchGit() error {
 	return nil
 }
 
+func getStagingLibraryDependencies(library string) ([]*registryEntry, error) {
+	libDir := rootLibraryPath + library
+	results := make([]*registryEntry, 0)
+	pinMain := libDir + "/pin/main.go"
+
+	if _, err := os.Stat(pinMain); os.IsNotExist(err) {
+		// no pin main, no way to tell deps. Log a message, return empty set
+		return results, nil
+	}
+
+	cmd := exec.Command("go", "run", pinMain)
+	output, err := cmd.Output()
+
+	if err != nil {
+		return nil, err
+	}
+
+	cache := make([]byte, 0)
+	for _, o := range output {
+		if o == lfByte {
+			// Save the cache value if and only if it's not "list"
+			line := string(cache)
+
+			parts := strings.SplitN(line, " ", 2)
+			constraint, err := version.NewConstraint(parts[1])
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, &registryEntry{
+				libName:    parts[0],
+				constraint: constraint[0],
+			})
+
+			// Now, reset the cache
+			cache = make([]byte, 0)
+		}
+	}
+
+	return results, nil
+}
+
 // parseGitTag is used to help parse the output of git tag
+// TODO find a way to refact this, as it's the same basic logic as in getStagingLibraryDependencies
 func parseGitTag(output []byte) ([]string, error) {
 	cache := make([]byte, 0)
 	results := make([]string, 0)
 	for _, o := range output {
-		if o == 10 { // 10 is the raw value
+		if o == lfByte {
 			// Save the cache value if and only if it's not "list"
 			constraint := string(cache)
 			// ignore tags that aren't versions
@@ -109,23 +163,27 @@ func parseGitTag(output []byte) ([]string, error) {
 	return results, nil
 }
 
+// Report prints the registry to stdout
+func Report() {
+	for _, r := range registry {
+		fmt.Print(fmt.Sprintf("%s %s\n", r.libName, r.constraint))
+	}
+}
+
 func (r *registryEntry) fetch() error {
 	if strings.Contains(r.libName, "github.com") {
 		return r.fetchGit()
-
-	} else {
-		// The weakness here is that you need a handler per possible repository system
-		// Bundler/Ruby has this easy - by now there is a ubiquitous and free public
-		// system, as well as several private systems that are all integrated. For now
-		// this remains an imperfect approach, but since a majority of all go libraries seem to be
-		// hosted on github, I feel it's both a fair start, and indicative of the general
-		// aproach you'd take for any other service
 	}
 
-	return nil
-}
+	// The weakness here is that you need a handler per possible repository system
+	// Bundler/Ruby has this easy - by now there is a ubiquitous and free public
+	// system, as well as several private systems that are all integrated. For now
+	// this remains an imperfect approach, but since a majority of all go libraries seem to be
+	// hosted on github, I feel it's both a fair start, and indicative of the general
+	// aproach you'd take for any other service
 
-var registry = make([]*registryEntry, 0)
+	return ErrUnsupportedDependency
+}
 
 // Register stores information about versions to check, which will apply
 // once you call Check()
@@ -163,5 +221,24 @@ func Pin() []error {
 			errs = append(errs, err)
 		}
 	}
-	return errs
+	return nil
+}
+
+// RunMain is meant to be invoked from a pin/main.go binary
+func RunMain() {
+	mode := os.Getenv("GOPIN_MODE")
+	if mode == "" || mode == "report" {
+		Report()
+		os.Exit(0)
+	} else if mode == "pin" {
+		errs := Pin()
+		if errs != nil && len(errs) > 0 {
+			for _, e := range errs {
+				log.Print(e)
+			}
+			os.Exit(1)
+		}
+	}
+
+	log.Fatal("Unsupported GOPIN_MODE: " + mode)
 }

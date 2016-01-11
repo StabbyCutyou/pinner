@@ -10,6 +10,8 @@ on git tags.
 It has several places that are functionally incomplete, but the idea was to given
 a quick demonstration of how I think it could start to be implemented.
 
+Use at your own risk, but hey - please give it a shot and provide some feedback!
+
 # In depth
 The idea here is that each library or service would define a "pin" package in it's
 own executable that would interact with something like this (pinner). You would
