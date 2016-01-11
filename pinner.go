@@ -33,23 +33,26 @@ func (r *registryEntry) fetchGit() error {
 	cloneURL := "https://" + r.libName + ".git"
 	libDir := rootLibraryPath + r.libName
 
-	err := os.MkdirAll(libDir, 0700)
-	if err != nil {
-		return err
+	if _, err := os.Stat(libDir); os.IsNotExist(err) {
+		// Create the directory, then clone into it
+		err := os.MkdirAll(libDir, 0700)
+		if err != nil {
+			return err
+		}
+
+		cmd := exec.Command("git", "clone", cloneURL, ".")
+		cmd.Dir = libDir
+		_, err = cmd.Output()
+
+		if err != nil {
+			return err
+		}
 	}
 
-	cmd := exec.Command("git", "clone", cloneURL, ".")
-	cmd.Dir = libDir
-	_, err = cmd.Output()
-
-	if err != nil {
-		return err
-	}
-
-	cmd = exec.Command("git", "fetch")
+	cmd := exec.Command("git", "fetch")
 	cmd.Dir = libDir
 
-	_, err = cmd.Output()
+	_, err := cmd.Output()
 
 	if err != nil {
 		return err
@@ -81,6 +84,8 @@ func (r *registryEntry) fetchGit() error {
 		versions[i] = v
 	}
 
+	// Now we've got all the versions for the top level dependencies
+	// Go through and checkout the right version
 	for _, v := range versions {
 		if r.constraint.Check(v) {
 			cmd := exec.Command("git", "checkout", "v"+v.String())
@@ -90,30 +95,42 @@ func (r *registryEntry) fetchGit() error {
 			if err != nil {
 				return err
 			}
-			return nil
+			break
+		}
+	}
+
+	// Now, for each of those libraries, get their dependencies, and fetch them
+	deps, err := r.getStagingLibraryDependencies()
+	if err != nil {
+		return err
+	}
+
+	for _, d := range deps {
+		err = d.fetch()
+		if err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-func getStagingLibraryDependencies(library string) ([]*registryEntry, error) {
-	libDir := rootLibraryPath + library
+func (r *registryEntry) getStagingLibraryDependencies() ([]*registryEntry, error) {
+	libDir := rootLibraryPath + r.libName
 	results := make([]*registryEntry, 0)
 	pinMain := libDir + "/pin/main.go"
-
 	if _, err := os.Stat(pinMain); os.IsNotExist(err) {
 		// no pin main, no way to tell deps. Log a message, return empty set
 		return results, nil
 	}
-
+	log.Print("go run " + pinMain)
 	cmd := exec.Command("go", "run", pinMain)
 	output, err := cmd.Output()
 
 	if err != nil {
 		return nil, err
 	}
-
+	log.Print(string(output))
 	cache := make([]byte, 0)
 	for _, o := range output {
 		if o == lfByte {
@@ -132,6 +149,8 @@ func getStagingLibraryDependencies(library string) ([]*registryEntry, error) {
 
 			// Now, reset the cache
 			cache = make([]byte, 0)
+		} else {
+			cache = append(cache, o)
 		}
 	}
 
@@ -234,7 +253,7 @@ func RunMain() {
 		errs := Pin()
 		if errs != nil && len(errs) > 0 {
 			for _, e := range errs {
-				log.Print(e)
+				fmt.Print(e)
 			}
 			os.Exit(1)
 		}
