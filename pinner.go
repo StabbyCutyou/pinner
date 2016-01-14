@@ -24,6 +24,9 @@ var lfByte byte = 10
 // registry holds the actual registry of each dependency
 var registry = make([]*registryEntry, 0)
 
+// dependencyList to hold a map of library name to list of overall dependencies
+var dependencyList = make(map[string][]*version.Constraint)
+
 type registryEntry struct {
 	libName    string
 	constraint *version.Constraint
@@ -99,6 +102,15 @@ func (r *registryEntry) fetchGit() error {
 		}
 	}
 
+	// At this point, add it to the dependencies map
+	if list, ok := dependencyList[r.libName]; ok {
+		list = append(list, r.constraint)
+		dependencyList[r.libName] = list
+	} else {
+		list = []*version.Constraint{r.constraint}
+		dependencyList[r.libName] = list
+	}
+
 	// Now, for each of those libraries, get their dependencies, and fetch them
 	deps, err := r.getStagingLibraryDependencies()
 	if err != nil {
@@ -123,14 +135,12 @@ func (r *registryEntry) getStagingLibraryDependencies() ([]*registryEntry, error
 		// no pin main, no way to tell deps. Log a message, return empty set
 		return results, nil
 	}
-	log.Print("go run " + pinMain)
 	cmd := exec.Command("go", "run", pinMain)
 	output, err := cmd.Output()
 
 	if err != nil {
 		return nil, err
 	}
-	log.Print(string(output))
 	cache := make([]byte, 0)
 	for _, o := range output {
 		if o == lfByte {
@@ -238,6 +248,12 @@ func Pin() []error {
 		err := r.fetch()
 		if err != nil {
 			errs = append(errs, err)
+		}
+	}
+	fmt.Println("Full list of Dependencies")
+	for key, val := range dependencyList {
+		for _, c := range val {
+			fmt.Println(key + " " + c.String())
 		}
 	}
 	return nil
