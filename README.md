@@ -1,4 +1,4 @@
-# Pinner
+# Pinner [![GoDoc](http://img.shields.io/badge/go-documentation-blue.svg?style=flat-square)](http://godoc.org/github.com/StabbyCutyou/pinner)
 A proof of concept approach for pinning dependencies in libraries and services / applications
 in go. It works by manipulating the files in $GOPATH/src to via any available semver tags.
 
