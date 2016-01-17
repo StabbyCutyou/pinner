@@ -17,12 +17,12 @@ The idea here is that each library or service would define a "pin" package in it
 own executable that would interact with something like this (pinner). You would
 register the dependencies, and the version + constraint (~>1.0, <3.0, etc).
 
-The current implementation simply goes and fetches them, but a proper implementation
-would need to do the following:
+The current implementation will:
 
 * Resolve all dependencies, break on any errors
 * For each of those dependencies, check for a "pin" package, resolve those
     * Continue doing this until you run out of "pin" packages, or until you hit a breaking issue
-* Build a tree of dependencies, such that you know both what each library depends on all the way down
-* From this tree, coalesce a list of unique dependencies with their version constraints
-* Now, feed this list to the current process, where it will actually retrieve all dependencies, and resolve to find the version-tag that best fulfils that constraint.
+* Build a map of dependencies to constraints
+* Now, retrieve all dependencies, and resolve to find the version-tag that best fulfils all the provided constraints
+  * Return an errror if none can be resolved
+* Copy the files from the staginig area into the real gopath
