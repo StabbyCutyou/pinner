@@ -12,6 +12,10 @@ a quick demonstration of how I think it could start to be implemented.
 
 Use at your own risk, but hey - please give it a shot and provide some feedback!
 
+Since the overall approach here will make changes to the src directory in your $GOPATH,
+Pinner is likely more suited for projects using an approach like [gb](getgb.io),
+which manages a unique $GOPATH environment per project.
+
 # In depth
 The idea here is that each library or service would define a "pin" package in it's
 own executable that would interact with something like this (pinner). You would
@@ -95,3 +99,9 @@ Since it is impossible to have a version that can satisfy both = 1.0 and ~> 2.0,
 you cannot resolve the dependencies successfully. The only course of action here is to
 fork one of the libraries, and change them to support the other version of LibC. Ideally,
 you'd find a way to contribute this back upstream, but thats up to you.
+
+# Roadmap
+
+Right now, this is experimental and should be used for gathering design feedback
+and to test the viability of the idea overall. I would greatly appreciate any
+feedback or comments, so feel free to open Github issues or PRs as a way to provide this.
