@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
 	"github.com/hashicorp/go-version"
@@ -27,12 +28,39 @@ var registry = make([]*registryEntry, 0)
 // dependencyList to hold a map of library name to list of overall dependencies
 var dependencyList = make(map[string][]*version.Constraint)
 
+// versionList to hold a map of library name to all known versions
+var versionList = make(map[string][]*version.Version)
+
 type registryEntry struct {
 	libName    string
 	constraint *version.Constraint
 }
 
-func (r *registryEntry) fetchGit() error {
+func (r *registryEntry) checkout(tag string) error {
+	libDir := rootLibraryPath + r.libName
+	fmt.Println("Checking out " + libDir + " " + tag)
+	cmd := exec.Command("git", "checkout", tag)
+	cmd.Dir = libDir
+
+	_, err := cmd.Output()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *registryEntry) fetch() error {
+	if !strings.Contains(r.libName, "github.com") {
+		// The weakness here is that you need a handler per possible repository system
+		// Bundler/Ruby has this easy - by now there is a ubiquitous and free public
+		// system, as well as several private systems that are all integrated. For now
+		// this remains an imperfect approach, but since a majority of all go libraries seem to be
+		// hosted on github, I feel it's both a fair start, and indicative of the general
+		// aproach you'd take for any other service
+
+		return ErrUnsupportedDependency
+	}
+
 	cloneURL := "https://" + r.libName + ".git"
 	libDir := rootLibraryPath + r.libName
 
@@ -87,17 +115,15 @@ func (r *registryEntry) fetchGit() error {
 		versions[i] = v
 	}
 
+	// Record the list of all versions for this lib
+	// Could get overwritten, but won't matter since its the same tag set
+	versionList[r.libName] = versions
+
 	// Now we've got all the versions for the top level dependencies
 	// Go through and checkout the right version
 	for _, v := range versions {
 		if r.constraint.Check(v) {
-			cmd := exec.Command("git", "checkout", "v"+v.String())
-			cmd.Dir = libDir
-
-			_, err := cmd.Output()
-			if err != nil {
-				return err
-			}
+			r.checkout("v" + v.String())
 			break
 		}
 	}
@@ -199,21 +225,6 @@ func Report() {
 	}
 }
 
-func (r *registryEntry) fetch() error {
-	if strings.Contains(r.libName, "github.com") {
-		return r.fetchGit()
-	}
-
-	// The weakness here is that you need a handler per possible repository system
-	// Bundler/Ruby has this easy - by now there is a ubiquitous and free public
-	// system, as well as several private systems that are all integrated. For now
-	// this remains an imperfect approach, but since a majority of all go libraries seem to be
-	// hosted on github, I feel it's both a fair start, and indicative of the general
-	// aproach you'd take for any other service
-
-	return ErrUnsupportedDependency
-}
-
 // Register stores information about versions to check, which will apply
 // once you call Check()
 func Register(name string, constraint string) error {
@@ -250,13 +261,58 @@ func Pin() []error {
 			errs = append(errs, err)
 		}
 	}
-	fmt.Println("Full list of Dependencies")
+
+	// Now to check each entry in version list
+	finalList := make(map[string]*version.Version, 0)
+	//fmt.Println("Full list of Dependencies")
 	for key, val := range dependencyList {
+		// Anything that passes a check for this version goes here
+		passedVersions := make(map[*version.Version]bool)
 		for _, c := range val {
-			fmt.Println(key + " " + c.String())
+
+			//fmt.Println(key + " " + c.String())
+			list, _ := versionList[key]
+			for _, v := range list {
+				//fmt.Println(" -- v" + v.String())
+				ok, alreadyPassed := passedVersions[v]
+				if !ok || alreadyPassed == true {
+					passedVersions[v] = c.Check(v)
+				}
+			}
+		}
+
+		// Print the versions that succeeded all constraints
+		if len(passedVersions) == 0 {
+			fmt.Println("No available versions successfully meet the constraints for " + key)
+			return nil
+		}
+
+		// Get the highest possible version from those that passedVersions
+		vl := make([]*version.Version, 0)
+
+		for ver, didPass := range passedVersions {
+			if didPass {
+				vl = append(vl, ver)
+			}
+		}
+		sort.Sort(version.Collection(vl))
+
+		fmt.Println("Best available library version for " + key + " is " + vl[len(vl)-1].String())
+		finalList[key] = vl[len(vl)-1]
+	}
+
+	// Now, for everything in finalList, go check out that branch
+	for lib, tag := range finalList {
+		r := &registryEntry{
+			libName: lib,
+		}
+
+		if err := r.checkout("v" + tag.String()); err != nil {
+			errs = append(errs, err)
 		}
 	}
-	return nil
+
+	return errs
 }
 
 // RunMain is meant to be invoked from a pin/main.go binary
