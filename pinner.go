@@ -36,9 +36,10 @@ type registryEntry struct {
 	constraint *version.Constraint
 }
 
+// chckout will move the defined library to the current tag via a detached branch
+// checkout.
 func (r *registryEntry) checkout(tag string) error {
 	libDir := rootLibraryPath + r.libName
-	fmt.Println("Checking out " + libDir + " " + tag)
 	cmd := exec.Command("git", "checkout", tag)
 	cmd.Dir = libDir
 
@@ -49,6 +50,9 @@ func (r *registryEntry) checkout(tag string) error {
 	return nil
 }
 
+// fetch will get not only the library pointed at by the registryEntry, but also
+// any registered depdencies as they exist in pin/main.go for that library. In this
+// sense, you can think of fetch as somewhat recursive.
 func (r *registryEntry) fetch() error {
 	if !strings.Contains(r.libName, "github.com") {
 		// The weakness here is that you need a handler per possible repository system
@@ -99,20 +103,15 @@ func (r *registryEntry) fetch() error {
 
 	tags, err := parseGitTag(output)
 
-	// Sort the list of versions
-	// Find the highest ranking version that fulfills the constraint
-	// in a sorted list, this would be the first match
-
 	versions := make([]*version.Version, len(tags))
 	for i, t := range tags {
 		ver := ""
+		// Per convention, only check tags beginning with 'v'
 		if t[0] == byte('v') {
 			ver = t[1:]
-		} else {
-			ver = t
+			v, _ := version.NewVersion(ver)
+			versions[i] = v
 		}
-		v, _ := version.NewVersion(ver)
-		versions[i] = v
 	}
 
 	// Record the list of all versions for this lib
@@ -153,6 +152,8 @@ func (r *registryEntry) fetch() error {
 	return nil
 }
 
+// getStagingLibraryDependencies will look in the Pinner staging directory for libraries,
+// and find their dependencies as well.
 func (r *registryEntry) getStagingLibraryDependencies() ([]*registryEntry, error) {
 	libDir := rootLibraryPath + r.libName
 	results := make([]*registryEntry, 0)
@@ -218,15 +219,16 @@ func parseGitTag(output []byte) ([]string, error) {
 	return results, nil
 }
 
-// Report prints the registry to stdout
+// Report prints the registry information to STDOUT
 func Report() {
 	for _, r := range registry {
 		fmt.Print(fmt.Sprintf("%s %s\n", r.libName, r.constraint))
 	}
 }
 
-// Register stores information about versions to check, which will apply
-// once you call Check()
+// Register stores information about versions to check. Meant to be called from
+// pin/main.go in your project, which should exist outside the normal runtime
+// of your libnary or application.
 func Register(name string, constraint string) error {
 
 	lockVer, err := version.NewConstraint(constraint)
@@ -295,6 +297,7 @@ func Pin() []error {
 				vl = append(vl, ver)
 			}
 		}
+		// Sort them, so we know that the one at the bottom is the highest possible library value
 		sort.Sort(version.Collection(vl))
 
 		fmt.Println("Best available library version for " + key + " is " + vl[len(vl)-1].String())
@@ -315,7 +318,14 @@ func Pin() []error {
 	return errs
 }
 
-// RunMain is meant to be invoked from a pin/main.go binary
+// RunMain is meant to be invoked from a pin/main.go binary. It will detect the
+// GOPIN_MOFR environment variable to determine how it behaves
+// GOPIN_MODE=report (default): It will print to STDOUT the list of dependencies
+// and the specified version constraints defined for them.
+// GOMODE_PIN=pin: It will look at it's own dependencies, then begin the process
+// of downloading them into a staging area, checking out the right versions, and
+// calling pin/main.go to invoke the report mode of that libraries registry. It
+// will continue to do this until all depdencies are resolved, or an error occurs.
 func RunMain() {
 	mode := os.Getenv("GOPIN_MODE")
 	if mode == "" || mode == "report" {
