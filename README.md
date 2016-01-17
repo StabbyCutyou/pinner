@@ -39,9 +39,20 @@ The current implementation will:
 
 I've provided a what would look like a sample Registry in pinner_test.go, which relies
 directly on 2 dummy libraries I've set up, which themselves have a set of dependencies on
-3 other libraries. Checkout [LibA]](https://github.com/StabbyCutyou/lib_a) or [LibB](https://github.com/StabbyCutyou/lib_b) to see examples.
+3 other libraries. Checkout [LibA](https://github.com/StabbyCutyou/lib_a) or [LibB](https://github.com/StabbyCutyou/lib_b) to see examples.
 
-A copy of a pin/main.go is provided here, as well:
+The current design is that a given library or application would have a pin/ directory,
+which contains a main.go file. In here, you would register your library locations as
+well as the constraint you place upon them. Pinnr uses [go-version](https://github.com/hashicorp/go-version) by hashicorp, so you
+can provide any constraint which that library natively supports.
+
+Once finished registering, you'd call the RunMain() function, which when invoked
+can either report on the dependencies, or manage pinning your local workspace to
+the versions best fitting the constraints of those depdencies, including any libraries
+that those dependencies declare, etc and so on, until all libraries are resolved
+(or an error occurs).
+
+A copy of a pin/main.go is provided here, as well, to give you an example:
 
 ```golang
 package main
