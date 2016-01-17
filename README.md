@@ -16,6 +16,10 @@ Since the overall approach here will make changes to the src directory in your $
 Pinner is likely more suited for projects using an approach like [gb](getgb.io),
 which manages a unique $GOPATH environment per project.
 
+Pinner expects to find tags with the prefix 'v', followed by a valid Semantic Version number.
+If it does not find these tags, it will not be able to determine which version to Use
+when resolving the dependency chain.
+
 # In depth
 The idea here is that each library or service would define a "pin" package in it's
 own executable that would interact with something like this (pinner). You would
