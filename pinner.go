@@ -40,7 +40,6 @@ type registryEntry struct {
 // checkout.
 func (r *registryEntry) checkout(tag string) error {
 	libDir := rootLibraryPath + r.libName
-	fmt.Println("Checking out " + libDir + " " + tag)
 	cmd := exec.Command("git", "checkout", tag)
 	cmd.Dir = libDir
 
